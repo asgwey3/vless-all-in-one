@@ -1253,9 +1253,12 @@ apply_download_proxy() {
         return
     fi
     
-    # DaoCloud 镜像支持任意网站
+    # DaoCloud 镜像支持任意网站（需要去掉 https:// 前缀）
     if [[ "$DOWNLOAD_PROXY" == "https://files.m.daocloud.io/" ]]; then
-        echo "${DOWNLOAD_PROXY}${url}"
+        # 去掉 https:// 或 http:// 前缀
+        local clean_url="${url#https://}"
+        clean_url="${clean_url#http://}"
+        echo "${DOWNLOAD_PROXY}${clean_url}"
         return
     fi
     
