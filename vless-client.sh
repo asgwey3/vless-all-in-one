@@ -137,6 +137,116 @@ get_ipv4() { curl -4 -sf --connect-timeout 5 ip.sb 2>/dev/null || curl -4 -sf --
 get_ipv6() { curl -6 -sf --connect-timeout 5 ip.sb 2>/dev/null || curl -6 -sf --connect-timeout 5 ifconfig.me 2>/dev/null; }
 gen_uuid()  { cat /proc/sys/kernel/random/uuid 2>/dev/null || printf '%04x%04x-%04x-%04x-%04x-%04x%04x%04x\n' $RANDOM $RANDOM $RANDOM $(($RANDOM&0x0fff|0x4000)) $(($RANDOM&0x3fff|0x8000)) $RANDOM $RANDOM $RANDOM; }
 
+# 获取 IP 地理位置代码
+get_ip_country() {
+    local ip="${1:-}"
+    local country=""
+    
+    # 方法1: ip-api.com
+    if [[ -n "$ip" ]]; then
+        country=$(curl -sf --connect-timeout 3 "http://ip-api.com/line/${ip}?fields=countryCode" 2>/dev/null)
+    else
+        country=$(curl -sf --connect-timeout 3 "http://ip-api.com/line/?fields=countryCode" 2>/dev/null)
+    fi
+    
+    # 方法2: 回退到 ipinfo.io
+    if [[ -z "$country" || "$country" == "fail" ]]; then
+        if [[ -n "$ip" ]]; then
+            country=$(curl -sf --connect-timeout 3 "https://ipinfo.io/${ip}/country" 2>/dev/null)
+        else
+            country=$(curl -sf --connect-timeout 3 "https://ipinfo.io/country" 2>/dev/null)
+        fi
+    fi
+    
+    # 清理结果
+    country=$(echo "$country" | tr -d '[:space:]')
+    echo "${country:-XX}"
+}
+
+# 全局变量：下载代理前缀
+DOWNLOAD_PROXY=""
+
+# 检测用户是否在中国
+is_in_china() {
+    local country=$(get_ip_country)
+    [[ "$country" == "CN" ]]
+}
+
+# 询问是否使用下载代理
+ask_download_proxy() {
+    [[ -n "$DOWNLOAD_PROXY" ]] && return 0
+    
+    echo ""
+    echo -e "${Y}检测到您在中国大陆，GitHub 下载可能较慢${NC}"
+    echo -e "${C}是否为下载文件使用镜像代理？${NC}"
+    echo ""
+    echo -e "  ${G}1${NC}. 使用 DaoCloud 镜像 (https://files.m.daocloud.io/github.com/...)"
+    echo -e "  ${G}2${NC}. 使用 ghproxy 镜像 (https://mirror.ghproxy.com/...)"
+    echo -e "  ${G}3${NC}. 使用 gh-proxy 镜像 (https://gh-proxy.com/...)"
+    echo -e "  ${G}4${NC}. 不使用代理（直连 GitHub）"
+    echo ""
+    
+    local choice
+    while true; do
+        read -p "$(echo -e ${C}请选择 [1-4, 默认: 1]: ${NC})" choice
+        choice=${choice:-1}
+        
+        case "$choice" in
+            1)
+                DOWNLOAD_PROXY="https://files.m.daocloud.io/"
+                _ok "已设置使用 DaoCloud 镜像"
+                break
+                ;;
+            2)
+                DOWNLOAD_PROXY="https://mirror.ghproxy.com/"
+                _ok "已设置使用 ghproxy 镜像"
+                break
+                ;;
+            3)
+                DOWNLOAD_PROXY="https://gh-proxy.com/"
+                _ok "已设置使用 gh-proxy 镜像"
+                break
+                ;;
+            4)
+                DOWNLOAD_PROXY=""
+                _ok "将直连 GitHub 下载"
+                break
+                ;;
+            *)
+                _warn "无效选择，请输入 1-4"
+                ;;
+        esac
+    done
+    
+    echo ""
+}
+
+# 为 URL 添加代理前缀
+apply_download_proxy() {
+    local url="$1"
+    
+    [[ -z "$DOWNLOAD_PROXY" ]] && echo "$url" && return
+    
+    # 不代理 API 请求
+    if [[ "$url" =~ ^https://api\.github\.com/ ]]; then
+        echo "$url"
+        return
+    fi
+    
+    # DaoCloud 镜像支持任意网站
+    if [[ "$DOWNLOAD_PROXY" == "https://files.m.daocloud.io/" ]]; then
+        echo "${DOWNLOAD_PROXY}${url}"
+        return
+    fi
+    
+    # 其他镜像只代理 GitHub 相关的 URL
+    if [[ "$url" =~ ^https://github\.com/ ]] || [[ "$url" =~ ^https://raw\.githubusercontent\.com/ ]]; then
+        echo "${DOWNLOAD_PROXY}${url}"
+    else
+        echo "$url"
+    fi
+}
+
 test_connection() {
     _info "验证代理效果..."
     
@@ -269,6 +379,11 @@ install_deps() {
 #═══════════════════════════════════════════════════════════════════════════════
 download_xray() {
     [[ -f /usr/local/bin/xray ]] && return 0
+    
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     _info "下载 Xray..."
     
     local arch=$(uname -m) xarch
@@ -280,6 +395,8 @@ download_xray() {
     esac
     
     local url="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${xarch}.zip"
+    url=$(apply_download_proxy "$url")
+    
     local tmp=$(mktemp -d)
     
     if curl -sLo "$tmp/xray.zip" --connect-timeout 30 "$url"; then
@@ -300,6 +417,11 @@ download_xray() {
 
 download_tun2socks() {
     [[ -x /usr/local/bin/tun2socks ]] && return 0
+    
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     _info "下载 tun2socks..."
     
     local arch=$(uname -m) t2s_arch
@@ -310,8 +432,11 @@ download_tun2socks() {
         *) _err "不支持的架构: $arch"; return 1 ;;
     esac
     
+    local url="https://github.com/xjasonlyu/tun2socks/releases/latest/download/tun2socks-linux-${t2s_arch}.zip"
+    url=$(apply_download_proxy "$url")
+    
     local tmp=$(mktemp -d)
-    if curl -sLo "$tmp/t2s.zip" --connect-timeout 60 "https://github.com/xjasonlyu/tun2socks/releases/latest/download/tun2socks-linux-${t2s_arch}.zip"; then
+    if curl -sLo "$tmp/t2s.zip" --connect-timeout 60 "$url"; then
         unzip -oq "$tmp/t2s.zip" -d "$tmp/" 2>/dev/null
         local bin=$(find "$tmp" -name "tun2socks*" -type f | head -1)
         if [[ -n "$bin" ]]; then
@@ -329,6 +454,11 @@ download_tun2socks() {
 
 download_hysteria() {
     [[ -f /usr/local/bin/hysteria ]] && return 0
+    
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     _info "下载 Hysteria2..."
     
     local arch=$(uname -m) harch
@@ -339,7 +469,10 @@ download_hysteria() {
         *) _err "不支持的架构: $arch"; return 1 ;;
     esac
     
-    if curl -sLo /usr/local/bin/hysteria --connect-timeout 60 "https://github.com/apernet/hysteria/releases/latest/download/hysteria-linux-${harch}"; then
+    local url="https://github.com/apernet/hysteria/releases/latest/download/hysteria-linux-${harch}"
+    url=$(apply_download_proxy "$url")
+    
+    if curl -sLo /usr/local/bin/hysteria --connect-timeout 60 "$url"; then
         chmod +x /usr/local/bin/hysteria
         _ok "Hysteria2 下载完成"
         return 0
@@ -350,6 +483,11 @@ download_hysteria() {
 
 download_tuic() {
     [[ -f /usr/local/bin/tuic-client ]] && return 0
+    
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     _info "下载 TUIC..."
     
     local arch=$(uname -m) tarch
@@ -360,7 +498,10 @@ download_tuic() {
         *) _err "不支持的架构: $arch"; return 1 ;;
     esac
     
-    if curl -sLo /usr/local/bin/tuic-client --connect-timeout 60 "https://github.com/EAimTY/tuic/releases/download/tuic-client-1.0.0/tuic-client-1.0.0-${tarch}"; then
+    local url="https://github.com/EAimTY/tuic/releases/download/tuic-client-1.0.0/tuic-client-1.0.0-${tarch}"
+    url=$(apply_download_proxy "$url")
+    
+    if curl -sLo /usr/local/bin/tuic-client --connect-timeout 60 "$url"; then
         chmod +x /usr/local/bin/tuic-client
         _ok "TUIC 下载完成"
         return 0
@@ -371,6 +512,11 @@ download_tuic() {
 
 download_anytls() {
     [[ -f /usr/local/bin/anytls-client ]] && return 0
+    
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     _info "下载 AnyTLS..."
     
     local arch=$(uname -m) aarch
@@ -383,7 +529,10 @@ download_anytls() {
     
     local tmp=$(mktemp -d)
     local version="v0.0.11"
-    if curl -sLo "$tmp/anytls.zip" --connect-timeout 60 "https://github.com/anytls/anytls-go/releases/download/${version}/anytls_${version#v}_linux_${aarch}.zip"; then
+    local url="https://github.com/anytls/anytls-go/releases/download/${version}/anytls_${version#v}_linux_${aarch}.zip"
+    url=$(apply_download_proxy "$url")
+    
+    if curl -sLo "$tmp/anytls.zip" --connect-timeout 60 "$url"; then
         unzip -oq "$tmp/anytls.zip" -d "$tmp/" 2>/dev/null
         install -m 755 "$tmp/anytls-client" /usr/local/bin/anytls-client
         rm -rf "$tmp"
@@ -397,6 +546,11 @@ download_anytls() {
 
 download_shadowtls() {
     [[ -f /usr/local/bin/shadow-tls ]] && return 0
+    
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     _info "下载 ShadowTLS..."
     
     local arch=$(uname -m) aarch
@@ -408,7 +562,10 @@ download_shadowtls() {
     esac
     
     local version="v0.2.25"
-    if curl -sLo /usr/local/bin/shadow-tls --connect-timeout 60 "https://github.com/ihciah/shadow-tls/releases/download/${version}/shadow-tls-${aarch}"; then
+    local url="https://github.com/ihciah/shadow-tls/releases/download/${version}/shadow-tls-${aarch}"
+    url=$(apply_download_proxy "$url")
+    
+    if curl -sLo /usr/local/bin/shadow-tls --connect-timeout 60 "$url"; then
         chmod +x /usr/local/bin/shadow-tls
         _ok "ShadowTLS 下载完成"
         return 0
@@ -1947,7 +2104,13 @@ create_shortcut() {
             cp -f "$real_path" "$system_script"
         else
             # 内存运行模式，从网络下载
+            if is_in_china; then
+                ask_download_proxy
+            fi
+            
             local raw_url="https://raw.githubusercontent.com/Chil30/vless-all-in-one/main/vless-client.sh"
+            raw_url=$(apply_download_proxy "$raw_url")
+            
             curl -sL --connect-timeout 30 -o "$system_script" "$raw_url" 2>/dev/null
         fi
     fi
@@ -1969,8 +2132,18 @@ do_update() {
     echo -e "  当前版本: ${G}v${VERSION}${NC}"
     _info "检查最新版本..."
     
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     local remote_url="https://raw.githubusercontent.com/Chil30/vless-all-in-one/main/vless-client.sh"
+    remote_url=$(apply_download_proxy "$remote_url")
+    
     local tmp_file=$(mktemp)
+    
+    if [[ -n "$DOWNLOAD_PROXY" ]]; then
+        _info "使用镜像下载更新..."
+    fi
     
     if ! curl -sL --connect-timeout 10 -o "$tmp_file" "$remote_url" || [[ ! -s "$tmp_file" ]]; then
         rm -f "$tmp_file"

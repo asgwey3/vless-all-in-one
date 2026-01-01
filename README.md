@@ -83,7 +83,7 @@
 ### 一键安装服务端
 
 ```bash
-wget -O vless-server.sh https://raw.githubusercontent.com/asgwey3/vless-all-in-one/main/vless-server.sh && chmod +x vless-server.sh && bash vless-server.sh
+wget -O vless-server.sh https://raw.githubusercontent.com/Chil30/vless-all-in-one/main/vless-server.sh && chmod +x vless-server.sh && bash vless-server.sh
 ```
 
 ### 服务端安装
@@ -104,7 +104,7 @@ vless
 ### 一键安装客户端
 
 ```bash
-wget -O vless-client.sh https://raw.githubusercontent.com/asgwey3/vless-all-in-one/main/vless-client.sh && chmod +x vless-client.sh && bash vless-client.sh
+wget -O vless-client.sh https://raw.githubusercontent.com/Chil30/vless-all-in-one/main/vless-client.sh && chmod +x vless-client.sh && bash vless-client.sh
 ```
 
 ### 客户端安装

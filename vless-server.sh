@@ -1181,6 +1181,92 @@ get_ip_country() {
     echo "${country:-XX}"
 }
 
+# 全局变量：下载代理前缀
+DOWNLOAD_PROXY=""
+
+# 检测用户是否在中国
+is_in_china() {
+    local country=$(get_ip_country)
+    [[ "$country" == "CN" ]]
+}
+
+# 询问是否使用下载代理（仅在中国时调用）
+ask_download_proxy() {
+    # 如果已经设置过，不再询问
+    [[ -n "$DOWNLOAD_PROXY" ]] && return 0
+    
+    echo ""
+    echo -e "${Y}检测到您在中国大陆，GitHub 下载可能较慢${NC}"
+    echo -e "${C}是否为下载文件使用镜像代理？${NC}"
+    echo ""
+    echo -e "  ${G}1${NC}. 使用 DaoCloud 镜像 (https://files.m.daocloud.io/github.com/...)"
+    echo -e "  ${G}2${NC}. 使用 ghproxy 镜像 (https://mirror.ghproxy.com/...)"
+    echo -e "  ${G}3${NC}. 使用 gh-proxy 镜像 (https://gh-proxy.com/...)"
+    echo -e "  ${G}4${NC}. 不使用代理（直连 GitHub）"
+    echo ""
+    
+    local choice
+    while true; do
+        read -p "$(echo -e ${C}请选择 [1-4, 默认: 1]: ${NC})" choice
+        choice=${choice:-1}
+        
+        case "$choice" in
+            1)
+                DOWNLOAD_PROXY="https://files.m.daocloud.io/"
+                _ok "已设置使用 DaoCloud 镜像"
+                break
+                ;;
+            2)
+                DOWNLOAD_PROXY="https://mirror.ghproxy.com/"
+                _ok "已设置使用 ghproxy 镜像"
+                break
+                ;;
+            3)
+                DOWNLOAD_PROXY="https://gh-proxy.com/"
+                _ok "已设置使用 gh-proxy 镜像"
+                break
+                ;;
+            4)
+                DOWNLOAD_PROXY=""
+                _ok "将直连 GitHub 下载"
+                break
+                ;;
+            *)
+                _warn "无效选择，请输入 1-4"
+                ;;
+        esac
+    done
+    
+    echo ""
+}
+
+# 为 URL 添加代理前缀
+apply_download_proxy() {
+    local url="$1"
+    
+    # 如果没有设置代理，直接返回原 URL
+    [[ -z "$DOWNLOAD_PROXY" ]] && echo "$url" && return
+    
+    # 不代理 API 请求（API 请求可能有 rate limit 或其他限制）
+    if [[ "$url" =~ ^https://api\.github\.com/ ]]; then
+        echo "$url"
+        return
+    fi
+    
+    # DaoCloud 镜像支持任意网站
+    if [[ "$DOWNLOAD_PROXY" == "https://files.m.daocloud.io/" ]]; then
+        echo "${DOWNLOAD_PROXY}${url}"
+        return
+    fi
+    
+    # 其他镜像（ghproxy、gh-proxy）只代理 GitHub 相关的 URL
+    if [[ "$url" =~ ^https://github\.com/ ]] || [[ "$url" =~ ^https://raw\.githubusercontent\.com/ ]]; then
+        echo "${DOWNLOAD_PROXY}${url}"
+    else
+        echo "$url"
+    fi
+}
+
 # 通过DNS检查域名的IP解析 (兼容性增强)
 check_domain_dns() {
     local domain=$1
@@ -3011,6 +3097,11 @@ _install_binary() {
     local name="$1" repo="$2" url_pattern="$3" extract_cmd="$4"
     check_cmd "$name" && { _ok "$name 已安装"; return 0; }
     
+    # 检测是否在中国，如果是则询问是否使用代理
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     _info "安装 $name (获取最新版本)..."
     local version=$(_get_latest_version "$repo")
     [[ -z "$version" ]] && { _err "获取 $name 版本失败"; return 1; }
@@ -3018,6 +3109,13 @@ _install_binary() {
     local arch=$(uname -m)
     local tmp=$(mktemp -d)
     local url=$(eval echo "$url_pattern")
+    
+    # 应用代理（如果设置了）
+    url=$(apply_download_proxy "$url")
+    
+    if [[ -n "$DOWNLOAD_PROXY" ]]; then
+        _info "使用镜像下载: $url"
+    fi
     
     if curl -sLo "$tmp/pkg" --connect-timeout 60 "$url"; then
         eval "$extract_cmd"
@@ -3317,9 +3415,24 @@ install_snell() {
     if [[ "$DISTRO" == "alpine" ]]; then
         apk add --no-cache upx &>/dev/null
     fi
+    
+    # 检测是否在中国，如果是则询问是否使用代理
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     _info "安装 Snell v4..."
     local tmp=$(mktemp -d)
-    if curl -sLo "$tmp/snell.zip" --connect-timeout 60 "https://dl.nssurge.com/snell/snell-server-v4.1.1-linux-${sarch}.zip"; then
+    
+    # 应用代理（DaoCloud 支持任意网站）
+    local download_url="https://dl.nssurge.com/snell/snell-server-v4.1.1-linux-${sarch}.zip"
+    download_url=$(apply_download_proxy "$download_url")
+    
+    if [[ -n "$DOWNLOAD_PROXY" ]]; then
+        _info "使用镜像下载: $download_url"
+    fi
+    
+    if curl -sLo "$tmp/snell.zip" --connect-timeout 60 "$download_url"; then
         unzip -oq "$tmp/snell.zip" -d "$tmp/" && install -m 755 "$tmp/snell-server" /usr/local/bin/snell-server
         # Alpine: 解压 UPX 压缩 (Snell 官方二进制使用 UPX，musl 不兼容 UPX stub)
         if [[ "$DISTRO" == "alpine" ]] && command -v upx &>/dev/null; then
@@ -3338,10 +3451,25 @@ install_snell_v5() {
     if [[ "$DISTRO" == "alpine" ]]; then
         apk add --no-cache upx &>/dev/null
     fi
+    
+    # 检测是否在中国，如果是则询问是否使用代理（用于获取版本信息）
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     local version=$(_get_latest_version "surge-networks/snell"); [[ -z "$version" ]] && version="5.0.1"
     _info "安装 Snell v$version..."
     local tmp=$(mktemp -d)
-    if curl -sLo "$tmp/snell.zip" --connect-timeout 60 "https://dl.nssurge.com/snell/snell-server-v${version}-linux-${sarch}.zip"; then
+    
+    # 应用代理（DaoCloud 支持任意网站）
+    local download_url="https://dl.nssurge.com/snell/snell-server-v${version}-linux-${sarch}.zip"
+    download_url=$(apply_download_proxy "$download_url")
+    
+    if [[ -n "$DOWNLOAD_PROXY" ]]; then
+        _info "使用镜像下载: $download_url"
+    fi
+    
+    if curl -sLo "$tmp/snell.zip" --connect-timeout 60 "$download_url"; then
         unzip -oq "$tmp/snell.zip" -d "$tmp/" && install -m 755 "$tmp/snell-server" /usr/local/bin/snell-server-v5
         # Alpine: 解压 UPX 压缩 (Snell 官方二进制使用 UPX，musl 不兼容 UPX stub)
         if [[ "$DISTRO" == "alpine" ]] && command -v upx &>/dev/null; then
@@ -3381,13 +3509,19 @@ install_naive() {
     if [[ "$DISTRO" == "alpine" ]]; then
         apk add --no-cache gcompat libc6-compat xz &>/dev/null
     fi
+    
+    # 检测是否在中国，如果是则询问是否使用代理
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     _info "安装 NaïveProxy (Caddy with forwardproxy)..."
     
     local tmp=$(mktemp -d)
     
     # 获取 tar.xz 下载链接 (使用 jq 解析 JSON)
-    local download_url=$(curl -sL --connect-timeout "$CURL_TIMEOUT_NORMAL" \
-        "https://api.github.com/repos/klzgrad/forwardproxy/releases/latest" | \
+    # API 请求不使用代理
+    local download_url=$(curl -sL --connect-timeout "$CURL_TIMEOUT_NORMAL" "https://api.github.com/repos/klzgrad/forwardproxy/releases/latest" | \
         jq -r '.assets[] | select(.name | endswith(".tar.xz")) | .browser_download_url' 2>/dev/null | head -1)
     
     if [[ -z "$download_url" ]]; then
@@ -3396,7 +3530,15 @@ install_naive() {
         return 1
     fi
     
-    _info "下载: $download_url"
+    # 应用代理（如果设置了）
+    download_url=$(apply_download_proxy "$download_url")
+    
+    if [[ -n "$DOWNLOAD_PROXY" ]]; then
+        _info "使用镜像下载: $download_url"
+    else
+        _info "下载: $download_url"
+    fi
+    
     if curl -fSLo "$tmp/caddy.tar.xz" --connect-timeout 60 --retry 3 "$download_url"; then
         # 解压
         tar -xJf "$tmp/caddy.tar.xz" -C "$tmp/" 2>/dev/null || { _err "解压失败"; rm -rf "$tmp"; return 1; }
@@ -4535,7 +4677,14 @@ create_shortcut() {
             cp -f "$real_path" "$system_script"
         else
             # 内存运行模式，从网络下载
+            # 检测是否在中国，如果是则询问是否使用代理
+            if is_in_china; then
+                ask_download_proxy
+            fi
+            
             local raw_url="https://raw.githubusercontent.com/Chil30/vless-all-in-one/main/vless-server.sh"
+            raw_url=$(apply_download_proxy "$raw_url")
+            
             if ! curl -sL --connect-timeout 10 -o "$system_script" "$raw_url"; then
                 _warn "无法下载脚本到系统目录"
                 return 1
@@ -4626,6 +4775,11 @@ download_wgcf() {
         fi
     fi
     
+    # 检测是否在中国，如果是则询问是否使用代理
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     local arch=$(uname -m)
     local wgcf_arch="amd64"
     [[ "$arch" == "aarch64" ]] && wgcf_arch="arm64"
@@ -4633,20 +4787,31 @@ download_wgcf() {
     
     # 自动获取最新版本
     echo -ne "  ${C}▸${NC} 获取 wgcf 最新版本..."
+    # API 请求不使用代理
     local wgcf_ver=$(curl -sL --connect-timeout 10 "https://api.github.com/repos/ViRb3/wgcf/releases/latest" | jq -r '.tag_name' 2>/dev/null | tr -d 'v')
     [[ -z "$wgcf_ver" || "$wgcf_ver" == "null" ]] && wgcf_ver="2.2.29"
     echo -e " v${wgcf_ver}"
     
-    local wgcf_urls=(
-        "https://github.com/ViRb3/wgcf/releases/download/v${wgcf_ver}/wgcf_${wgcf_ver}_linux_${wgcf_arch}"
-        "https://mirror.ghproxy.com/https://github.com/ViRb3/wgcf/releases/download/v${wgcf_ver}/wgcf_${wgcf_ver}_linux_${wgcf_arch}"
-        "https://gh-proxy.com/https://github.com/ViRb3/wgcf/releases/download/v${wgcf_ver}/wgcf_${wgcf_ver}_linux_${wgcf_arch}"
+    # 构建下载 URL 列表
+    local base_url="https://github.com/ViRb3/wgcf/releases/download/v${wgcf_ver}/wgcf_${wgcf_ver}_linux_${wgcf_arch}"
+    local wgcf_urls=()
+    
+    # 如果设置了代理，优先使用代理 URL
+    if [[ -n "$DOWNLOAD_PROXY" ]]; then
+        wgcf_urls+=("$(apply_download_proxy "$base_url")")
+    fi
+    
+    # 添加其他备用镜像
+    wgcf_urls+=(
+        "$base_url"
+        "https://mirror.ghproxy.com/${base_url}"
+        "https://gh-proxy.com/${base_url}"
     )
     
     rm -f /usr/local/bin/wgcf
     local try_num=1
     for url in "${wgcf_urls[@]}"; do
-        echo -ne "  ${C}▸${NC} 下载 wgcf (尝试 $try_num/3)..."
+        echo -ne "  ${C}▸${NC} 下载 wgcf (尝试 $try_num/${#wgcf_urls[@]})..."
         if curl -fL -o /usr/local/bin/wgcf "$url" --connect-timeout 30 --max-time 120 2>/dev/null; then
             if [[ -s /usr/local/bin/wgcf ]] && file /usr/local/bin/wgcf 2>/dev/null | grep -q "ELF"; then
                 chmod +x /usr/local/bin/wgcf
@@ -12917,10 +13082,22 @@ do_update() {
     echo -e "  当前版本: ${G}v${VERSION}${NC}"
     _info "检查最新版本..."
     
+    # 检测是否在中国，如果是则询问是否使用代理
+    if is_in_china; then
+        ask_download_proxy
+    fi
+    
     local raw_url="https://raw.githubusercontent.com/Chil30/vless-all-in-one/main/vless-server.sh"
+    # 应用代理（如果设置了）
+    raw_url=$(apply_download_proxy "$raw_url")
+    
     local tmp_file=$(mktemp)
     
     # 下载最新脚本
+    if [[ -n "$DOWNLOAD_PROXY" ]]; then
+        _info "使用镜像下载更新..."
+    fi
+    
     if ! curl -sL --connect-timeout 10 -o "$tmp_file" "$raw_url"; then
         rm -f "$tmp_file"
         _err "下载失败，请检查网络连接"
