@@ -17,13 +17,13 @@
 #    • 修复主菜单分流状态显示问题
 #    • 修复分流管理页面自定义规则不显示域名的问题
 #  
-#  作者: Chil30
-#  项目地址: https://github.com/Chil30/vless-all-in-one
+#  作者: asgwey3
+#  项目地址: https://github.com/asgwey3/vless-all-in-one
 #═══════════════════════════════════════════════════════════════════════════════
 
 readonly VERSION="3.1.0"
-readonly AUTHOR="Chil30"
-readonly REPO_URL="https://github.com/Chil30/vless-all-in-one"
+readonly AUTHOR="asgwey3"
+readonly REPO_URL="https://github.com/asgwey3/vless-all-in-one"
 readonly CFG="/etc/vless-reality"
 
 # curl 超时常量
@@ -4682,7 +4682,7 @@ create_shortcut() {
                 ask_download_proxy
             fi
             
-            local raw_url="https://raw.githubusercontent.com/Chil30/vless-all-in-one/main/vless-server.sh"
+            local raw_url="https://raw.githubusercontent.com/asgwey3/vless-all-in-one/main/vless-server.sh"
             raw_url=$(apply_download_proxy "$raw_url")
             
             if ! curl -sL --connect-timeout 10 -o "$system_script" "$raw_url"; then
@@ -13087,7 +13087,7 @@ do_update() {
         ask_download_proxy
     fi
     
-    local raw_url="https://raw.githubusercontent.com/Chil30/vless-all-in-one/main/vless-server.sh"
+    local raw_url="https://raw.githubusercontent.com/asgwey3/vless-all-in-one/main/vless-server.sh"
     # 应用代理（如果设置了）
     raw_url=$(apply_download_proxy "$raw_url")
     

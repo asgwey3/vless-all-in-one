@@ -9,13 +9,13 @@
 #    - TUN网卡模式 / 全局代理模式 / SOCKS5代理模式
 #    - 节点管理 / 多节点切换
 #  
-#  作者: Chil30
-#  项目地址: https://github.com/Chil30/vless-all-in-one
+#  作者: asgwey3
+#  项目地址: https://github.com/asgwey3/vless-all-in-one
 #═══════════════════════════════════════════════════════════════════════════════
 
 readonly VERSION="3.0.2"
-readonly AUTHOR="Chil30"
-readonly REPO_URL="https://github.com/Chil30/vless-all-in-one"
+readonly AUTHOR="asgwey3"
+readonly REPO_URL="https://github.com/asgwey3/vless-all-in-one"
 readonly CFG="/etc/vless-reality"
 readonly SOCKS_PORT="10808"
 readonly REDIR_PORT="10809"
@@ -2108,7 +2108,7 @@ create_shortcut() {
                 ask_download_proxy
             fi
             
-            local raw_url="https://raw.githubusercontent.com/Chil30/vless-all-in-one/main/vless-client.sh"
+            local raw_url="https://raw.githubusercontent.com/asgwey3/vless-all-in-one/main/vless-client.sh"
             raw_url=$(apply_download_proxy "$raw_url")
             
             curl -sL --connect-timeout 30 -o "$system_script" "$raw_url" 2>/dev/null
@@ -2136,7 +2136,7 @@ do_update() {
         ask_download_proxy
     fi
     
-    local remote_url="https://raw.githubusercontent.com/Chil30/vless-all-in-one/main/vless-client.sh"
+    local remote_url="https://raw.githubusercontent.com/asgwey3/vless-all-in-one/main/vless-client.sh"
     remote_url=$(apply_download_proxy "$remote_url")
     
     local tmp_file=$(mktemp)
