@@ -2219,7 +2219,7 @@ main_menu() {
     check_root
     
     # 自动更新系统脚本 (确保 vlessc 命令始终是最新版本)
-    _auto_update_system_script
+    #_auto_update_system_script
     
     while true; do
         _header
