@@ -10006,10 +10006,7 @@ do_install_server() {
             local keys=$(xray x25519 2>/dev/null)
             [[ -z "$keys" ]] && { _err "密钥生成失败"; return 1; }
             local privkey=$(echo "$keys" | awk '/^PrivateKey:/ {print $2}')
-            local pubkey=$(echo "$keys" | awk '
-                /^Password \(PublicKey\):/ {print $2; next}
-                /^Password:/ {print $2}
-            ')
+            local pubkey=$(echo "$keys" | awk '/^Password \(PublicKey\):/ {print $2}')
             [[ -z "$privkey" || -z "$pubkey" ]] && { _err "密钥提取失败"; return 1; }
             
             # Reality协议不需要证书，直接选择SNI
