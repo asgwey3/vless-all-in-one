@@ -164,7 +164,7 @@ get_ip_country() {
 }
 
 # 全局变量：下载代理前缀
-DOWNLOAD_PROXY=""
+DOWNLOAD_PROXY="${DOWNLOAD_PROXY:-}"
 
 # 检测用户是否在中国
 is_in_china() {
@@ -2448,5 +2448,28 @@ main_menu() {
     done
 }
 
+# 解析命令行参数
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--proxy|--url-prefix|--prefix)
+                if [[ -n "$2" ]]; then
+                    DOWNLOAD_PROXY="$2"
+                    # 确保以 / 结尾
+                    [[ "$DOWNLOAD_PROXY" != */ ]] && DOWNLOAD_PROXY="${DOWNLOAD_PROXY}/"
+                    shift 2
+                else
+                    echo -e "${R}错误: $1 选项需要指定一个值${NC}"
+                    exit 1
+                fi
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+}
+
 # 启动主菜单
+parse_args "$@"
 main_menu
